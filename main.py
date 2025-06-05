@@ -1,5 +1,5 @@
-# ФИНАЛЬНЫЙ main.py - полная интеграция AI агента с PostgreSQL
-# Версия: Production v3.0 с LangGraph + Trustcall + PostgreSQL
+# ФИНАЛЬНЫЙ ИСПРАВЛЕННЫЙ main.py v3.1
+# Исправлена проблема с event loop для продакшн среды
 
 import os
 import logging
@@ -81,7 +81,7 @@ class FinancialTelegramBot:
                 logger.error(f"❌ Ошибка создания пользователя: {e}")
         
         welcome_message = """
-🤖 **Финансовый Ассистент v3.0**
+🤖 **Финансовый Ассистент v3.1**
 
 Теперь с полной AI интеграцией! 🧠
 
@@ -201,7 +201,7 @@ class FinancialTelegramBot:
                 user_stats = "❌ Ошибка загрузки"
         
         status_message = f"""
-⚙️ **Статус системы v3.0:**
+⚙️ **Статус системы v3.1:**
 
 **🏗️ Компоненты:**
 🤖 Telegram Bot: {bot_status}
@@ -309,60 +309,58 @@ class FinancialTelegramBot:
         # Глобальный обработчик ошибок
         self.application.add_error_handler(self.error_handler)
     
-    def run(self):
-        """Синхронный запуск бота с асинхронной инициализацией"""
-        
-        logger.info("🔧 Создаем приложение Telegram...")
-        
-        # Создаем приложение
-        self.application = Application.builder().token(self.bot_token).build()
-        
-        # Настраиваем обработчики
-        self.setup_handlers()
-        
-        logger.info("⚙️ Запускаем асинхронную инициализацию компонентов...")
-        
-        # Запускаем инициализацию в фоне
-        async def init_and_run():
-            try:
-                await self.initialize_components()
-            except Exception as e:
-                logger.error(f"❌ Критическая ошибка инициализации: {e}")
-        
-        # Создаем задачу инициализации
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    async def run_async(self):
+        """Полностью асинхронный запуск"""
         
         try:
-            # Запускаем инициализацию
-            loop.run_until_complete(init_and_run())
+            logger.info("🔧 Создаем приложение Telegram...")
+            
+            # Создаем приложение
+            self.application = Application.builder().token(self.bot_token).build()
+            
+            # Настраиваем обработчики
+            self.setup_handlers()
+            
+            logger.info("⚙️ Инициализируем компоненты...")
+            
+            # Инициализируем компоненты
+            await self.initialize_components()
+            
+            logger.info("🚀 Запускаем бота в режиме polling...")
+            
+            # Запускаем бота асинхронно
+            await self.application.run_polling(
+                drop_pending_updates=True,
+                close_loop=False
+            )
+            
         except Exception as e:
-            logger.error(f"❌ Ошибка в event loop инициализации: {e}")
-        finally:
-            loop.close()
-        
-        logger.info("🚀 Запускаем бота в режиме polling...")
-        
-        # Запускаем бота (синхронно)
-        self.application.run_polling(
-            drop_pending_updates=True,
-        )
-
-async def cleanup_on_shutdown(db_manager):
-    """Очистка ресурсов при завершении"""
-    if db_manager:
-        await db_manager.close()
-        logger.info("✅ Ресурсы очищены")
+            logger.error(f"❌ Ошибка в run_async: {e}")
+            raise
 
 def main():
-    """Главная функция запуска полного MVP"""
+    """Главная функция - правильный запуск для продакшн"""
     
-    print("🤖 Запуск финансового Telegram бота v3.0")
+    print("🤖 Запуск финансового Telegram бота v3.1")
     print("🧠 С AI агентом, PostgreSQL и полной интеграцией")
     
     try:
         bot = FinancialTelegramBot()
-        bot.run()
+        
+        # ПРАВИЛЬНЫЙ способ запуска в продакшн
+        if os.name == 'nt':  # Windows
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        
+        # Создаем новый event loop для продакшн
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Запускаем полностью асинхронно
+            loop.run_until_complete(bot.run_async())
+        finally:
+            # Правильно закрываем loop
+            loop.close()
         
     except ValueError as e:
         logger.error(f"❌ Ошибка конфигурации: {e}")
