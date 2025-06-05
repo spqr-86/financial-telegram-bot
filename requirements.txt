@@ -8,4 +8,4 @@ python-dotenv==1.0.1
 # trustcall
 # langchain-core
 # pydantic
-# asyncpg
+# asyncpg==0.29.0
