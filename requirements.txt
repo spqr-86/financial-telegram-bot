@@ -1,0 +1,8 @@
+python-telegram-bot==20.7
+langchain-openai==0.1.7
+langgraph==0.0.69
+trustcall==0.0.24
+langchain-core==0.1.52
+pydantic==2.6.4
+asyncpg==0.29.0
+python-dotenv==1.0.0
