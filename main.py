@@ -1,14 +1,13 @@
-# ФИНАЛЬНЫЙ ИСПРАВЛЕННЫЙ main.py v3.1
-# Исправлена проблема с event loop для продакшн среды
+# ПРОСТАЯ СИНХРОННАЯ ВЕРСИЯ main.py для Railway
+# Убираем все сложное управление event loop
 
 import os
 import logging
-import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Импортируем наши модули
+# Импортируем наши модули  
 from database import DatabaseManager
 from agent import FinancialAgent
 
@@ -19,357 +18,303 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class FinancialTelegramBot:
-    """Продакшн версия финансового Telegram бота с AI агентом"""
-    
-    def __init__(self):
-        # Получаем переменные окружения
-        self.bot_token = os.getenv("BOT_TOKEN")
-        self.database_url = os.getenv("DATABASE_URL")
-        self.openai_key = os.getenv("OPENAI_API_KEY")
-        
-        # Проверяем обязательные переменные
-        if not self.bot_token:
-            raise ValueError("❌ BOT_TOKEN не установлен в переменных окружения")
-        if not self.database_url:
-            raise ValueError("❌ DATABASE_URL не установлен в переменных окружения")
-        if not self.openai_key:
-            raise ValueError("❌ OPENAI_API_KEY не установлен в переменных окружения")
-        
-        # Инициализируем компоненты
-        self.application = None
-        self.db_manager = None
-        self.agent = None
-        self.is_initialized = False
-        
-        logger.info("✅ Бот создан, ожидание инициализации...")
-    
-    async def initialize_components(self):
-        """Асинхронная инициализация базы данных и AI агента"""
-        
-        try:
-            logger.info("🔧 Инициализируем базу данных...")
-            
-            # Инициализируем менеджер базы данных
-            self.db_manager = DatabaseManager(self.database_url)
-            await self.db_manager.initialize()
-            
-            logger.info("🤖 Инициализируем AI агента...")
-            
-            # Инициализируем финансового агента
-            self.agent = FinancialAgent(self.db_manager)
-            
-            self.is_initialized = True
-            logger.info("✅ Все компоненты инициализированы успешно!")
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка инициализации компонентов: {e}")
-            raise
-    
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик команды /start"""
-        
-        # Создаем пользователя в БД если нужно
-        if self.is_initialized:
-            try:
-                await self.db_manager.create_user_if_not_exists(
-                    update.effective_chat.id,
-                    update.effective_user.username,
-                    update.effective_user.first_name
-                )
-            except Exception as e:
-                logger.error(f"❌ Ошибка создания пользователя: {e}")
-        
-        welcome_message = """
-🤖 **Финансовый Ассистент v3.1**
+# Глобальные переменные для компонентов
+db_manager = None
+agent = None
+is_initialized = False
 
-Теперь с полной AI интеграцией! 🧠
+async def initialize_components():
+    """Глобальная инициализация компонентов"""
+    global db_manager, agent, is_initialized
+    
+    try:
+        logger.info("🔧 Инициализируем базу данных...")
+        
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError("DATABASE_URL не установлен")
+        
+        # Инициализируем БД
+        db_manager = DatabaseManager(database_url)
+        await db_manager.initialize()
+        
+        logger.info("🤖 Инициализируем AI агента...")
+        
+        # Инициализируем агента
+        agent = FinancialAgent(db_manager)
+        
+        is_initialized = True
+        logger.info("✅ Все компоненты инициализированы!")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации: {e}")
+        raise
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /start"""
+    
+    global db_manager, is_initialized
+    
+    # Создаем пользователя в БД
+    if is_initialized and db_manager:
+        try:
+            await db_manager.create_user_if_not_exists(
+                update.effective_chat.id,
+                update.effective_user.username,
+                update.effective_user.first_name
+            )
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания пользователя: {e}")
+    
+    welcome_message = """
+🤖 **Финансовый Ассистент v3.2**
+
+Полная AI интеграция! 🧠
 
 **Что умею:**
 💸 Автоматически извлекать суммы и категории
 💰 Понимать естественную речь
-📊 Вести учет в базе данных
-📈 Генерировать умные отчеты
+📊 Вести учет в PostgreSQL
+📈 Генерировать отчеты
 
 **Попробуйте:**
-• "Потратил 300 рублей на продукты в Пятерочке"
-• "Получил зарплату 75000 рублей"
+• "Потратил 300 рублей на продукты"
+• "Получил зарплату 75000"
 • "Какой у меня баланс?"
-• "Покажи отчет по тратам"
+• "Покажи отчет"
 
 **Команды:**
 /help - справка
-/balance - быстрый баланс
+/balance - баланс
 /report - отчет
-/status - состояние системы
+/status - статус
 
-Просто пишите как обычно - я понимаю! 😊
-        """
-        
-        await update.message.reply_text(welcome_message, parse_mode='Markdown')
-        logger.info(f"👋 Пользователь {update.effective_user.id} запустил бота")
+Просто пишите как обычно! 😊
+    """
     
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик команды /help"""
-        
-        help_message = """
-🆘 **Справка по использованию AI ассистента:**
+    await update.message.reply_text(welcome_message, parse_mode='Markdown')
+    logger.info(f"👋 Пользователь {update.effective_user.id} запустил бота")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /help"""
+    
+    help_message = """
+🆘 **Справка по AI ассистенту:**
 
 **💡 Естественные команды:**
 • "Потратил 500 на продукты" 
 • "Заплатил 2000 за интернет"
 • "Получил зарплату 50000"
-• "Продал машину за 800000"
-• "Купил кофе за 150 в Starbucks"
+• "Купил кофе за 150"
 
 **📊 Запросы информации:**
 • "Какой баланс?"
-• "Сколько потратил на продукты?"
-• "Покажи отчет за месяц"
-• "Статистика по категориям"
+• "Покажи отчет"
+• "Статистика по тратам"
 
-**🤖 Команды бота:**
-/start - перезапустить
-/balance - быстрый баланс  
-/report - подробный отчет
-/status - состояние системы
-/help - эта справка
+**🤖 Команды:**
+/start - начать
+/balance - баланс  
+/report - отчет
+/status - статус
+/help - справка
 
-**🧠 Как работает AI:**
-1. Вы пишете обычным текстом
-2. AI извлекает сумму, категорию, тип операции
-3. Данные сохраняются в базу
-4. Получаете подтверждение и актуальный баланс
+**🧠 AI обработка:**
+1. Пишете обычным текстом
+2. AI извлекает данные
+3. Сохраняется в базу
+4. Получаете подтверждение
 
-**Технологии:** GPT-4, LangGraph, PostgreSQL
-        """
-        
-        await update.message.reply_text(help_message, parse_mode='Markdown')
+**Tech:** GPT-4o, LangGraph, PostgreSQL
+    """
     
-    async def balance_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Быстрая команда проверки баланса"""
-        
-        if not self.is_initialized:
-            await update.message.reply_text("⏳ Система инициализируется, попробуйте через несколько секунд...")
-            return
-        
+    await update.message.reply_text(help_message, parse_mode='Markdown')
+
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /balance"""
+    
+    global agent, is_initialized
+    
+    if not is_initialized:
+        await update.message.reply_text("⏳ Система загружается, попробуйте через 10 секунд...")
+        return
+    
+    try:
+        response = await agent.process_message("Какой у меня баланс?", update.effective_chat.id)
+        await update.message.reply_text(response, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"❌ Ошибка баланса: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /report"""
+    
+    global agent, is_initialized
+    
+    if not is_initialized:
+        await update.message.reply_text("⏳ Система загружается, попробуйте через 10 секунд...")
+        return
+    
+    try:
+        response = await agent.process_message("Покажи подробный отчет", update.effective_chat.id)
+        await update.message.reply_text(response, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"❌ Ошибка отчета: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /status"""
+    
+    global db_manager, agent, is_initialized
+    
+    # Статусы компонентов
+    bot_status = "🟢 Работает"
+    db_status = "🟢 Подключена" if db_manager and is_initialized else "🔴 Не готова"
+    ai_status = "🟢 Активен" if agent and is_initialized else "🔴 Не готов"
+    
+    # Переменные окружения
+    bot_token = "🟢 Есть" if os.getenv("BOT_TOKEN") else "❌ Нет"
+    database_url = "🟢 Есть" if os.getenv("DATABASE_URL") else "❌ Нет"
+    openai_key = "🟢 Есть" if os.getenv("OPENAI_API_KEY") else "❌ Нет"
+    
+    # Статистика пользователя
+    user_stats = "📊 Загружаю..."
+    if is_initialized and db_manager:
         try:
-            response = await self.agent.process_message("Какой у меня баланс?", update.effective_chat.id)
-            await update.message.reply_text(response, parse_mode='Markdown')
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка в balance_command: {e}")
-            await update.message.reply_text(f"❌ Ошибка получения баланса: {str(e)}")
+            balance_info = await db_manager.get_balance(update.effective_chat.id)
+            user_stats = f"💰 {balance_info['balance']:.2f} RUB, 📊 {balance_info['transaction_count']} операций"
+        except:
+            user_stats = "❌ Ошибка загрузки"
     
-    async def report_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда генерации отчета"""
-        
-        if not self.is_initialized:
-            await update.message.reply_text("⏳ Система инициализируется, попробуйте через несколько секунд...")
-            return
-        
-        try:
-            response = await self.agent.process_message("Покажи подробный отчет", update.effective_chat.id)
-            await update.message.reply_text(response, parse_mode='Markdown')
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка в report_command: {e}")
-            await update.message.reply_text(f"❌ Ошибка генерации отчета: {str(e)}")
-    
-    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда проверки статуса системы"""
-        
-        # Проверяем статус компонентов
-        bot_status = "🟢 Работает"
-        db_status = "🟢 Подключена" if self.db_manager and self.is_initialized else "🔴 Не готова"
-        ai_status = "🟢 Активен" if self.agent and self.is_initialized else "🔴 Не готов"
-        
-        # Проверяем переменные окружения
-        env_checks = {
-            "BOT_TOKEN": "🟢 Настроен" if self.bot_token else "❌ Отсутствует",
-            "DATABASE_URL": "🟢 Настроена" if self.database_url else "❌ Отсутствует", 
-            "OPENAI_API_KEY": "🟢 Настроен" if self.openai_key else "❌ Отсутствует"
-        }
-        
-        # Получаем статистику пользователя если возможно
-        user_stats = "📊 Загружаю..."
-        if self.is_initialized:
-            try:
-                balance_info = await self.db_manager.get_balance(update.effective_chat.id)
-                user_stats = f"💰 Баланс: {balance_info['balance']:.2f} RUB, 📊 Операций: {balance_info['transaction_count']}"
-            except:
-                user_stats = "❌ Ошибка загрузки"
-        
-        status_message = f"""
-⚙️ **Статус системы v3.1:**
+    status_message = f"""
+⚙️ **Статус системы v3.2:**
 
 **🏗️ Компоненты:**
 🤖 Telegram Bot: {bot_status}
 🗄️ PostgreSQL: {db_status}
 🧠 AI Агент: {ai_status}
 
-**🔧 Конфигурация:**
-🔑 {env_checks["BOT_TOKEN"]} BOT_TOKEN
-🗄️ {env_checks["DATABASE_URL"]} DATABASE_URL  
-🤖 {env_checks["OPENAI_API_KEY"]} OPENAI_API_KEY
+**🔧 Env переменные:**
+🔑 BOT_TOKEN: {bot_token}
+🗄️ DATABASE_URL: {database_url}
+🤖 OPENAI_API_KEY: {openai_key}
 
-**👤 Ваша статистика:**
+**👤 Ваши данные:**
 {user_stats}
 
-**📍 Развертывание:**
+**📍 Сервер:**
 🌐 Railway.app
 ⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
-🔄 Инициализация: {"✅ Завершена" if self.is_initialized else "⏳ В процессе"}
+🔄 Готовность: {"✅ Готов" if is_initialized else "⏳ Загружается"}
 
 **🚀 Возможности:**
 ✅ Понимание естественной речи
-✅ Автоматическое извлечение данных
-✅ Постоянное хранение в БД
+✅ Автоматическое извлечение данных  
+✅ Постоянное хранение в PostgreSQL
 ✅ Генерация отчетов и аналитики
-        """
-        
-        await update.message.reply_text(status_message, parse_mode='Markdown')
-        logger.info(f"⚙️ Пользователь {update.effective_user.id} запросил статус")
+    """
     
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработчик всех текстовых сообщений через AI агента"""
+    await update.message.reply_text(status_message, parse_mode='Markdown')
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик всех сообщений через AI"""
+    
+    global agent, is_initialized
+    
+    user_text = update.message.text
+    chat_id = update.effective_chat.id
+    user_name = update.effective_user.first_name or "Пользователь"
+    
+    logger.info(f"📝 Сообщение от {user_name} ({chat_id}): {user_text}")
+    
+    # Проверяем готовность
+    if not is_initialized:
+        await update.message.reply_text(
+            "⏳ **Система загружается...**\n\n"
+            "AI агент и база данных запускаются.\n"
+            "Попробуйте через 15 секунд или /status"
+        )
+        return
+    
+    # Показываем, что печатаем
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    
+    try:
+        # ОБРАБОТКА ЧЕРЕЗ AI АГЕНТА
+        response = await agent.process_message(user_text, chat_id)
+        await update.message.reply_text(response, parse_mode='Markdown')
         
-        user_text = update.message.text
-        chat_id = update.effective_chat.id
-        user_name = update.effective_user.first_name or "Пользователь"
+        logger.info(f"✅ AI ответ отправлен пользователю {user_name}")
         
-        logger.info(f"📝 Сообщение от {user_name} ({chat_id}): {user_text}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка AI обработки: {e}")
         
-        # Проверяем готовность системы
-        if not self.is_initialized:
-            await update.message.reply_text(
-                "⏳ **Система инициализируется...**\n\n"
-                "AI агент и база данных запускаются.\n"
-                "Попробуйте через 10-15 секунд или используйте /status для проверки."
-            )
-            return
-        
-        # Показываем, что бот печатает
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        
-        try:
-            # ГЛАВНАЯ МАГИЯ: обрабатываем через AI агента
-            response = await self.agent.process_message(user_text, chat_id)
-            await update.message.reply_text(response, parse_mode='Markdown')
-            
-            logger.info(f"✅ AI ответ отправлен пользователю {user_name}")
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка обработки через AI: {e}")
-            
-            error_response = f"""❌ **Ошибка обработки сообщения**
+        error_response = f"""❌ **Ошибка обработки**
 
 Сообщение: "{user_text}"
 Ошибка: {str(e)}
 
-**Что можно попробовать:**
+**Попробуйте:**
 • /start - перезапустить
-• /status - проверить систему  
-• /help - получить справку
+• /status - проверить систему
+• /help - справка"""
+        
+        await update.message.reply_text(error_response, parse_mode='Markdown')
 
-Или попробуйте переформулировать запрос."""
-            
-            await update.message.reply_text(error_response, parse_mode='Markdown')
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
     
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Глобальный обработчик ошибок"""
-        
-        logger.error(f"❌ Глобальная ошибка бота: {context.error}")
-        
-        if update and update.message:
-            await update.message.reply_text(
-                "❌ **Произошла системная ошибка**\n\n"
-                "Попробуйте:\n"
-                "• /start - перезапустить\n"
-                "• /status - проверить систему\n"
-                "• /help - получить справку\n\n"
-                "Если проблема повторяется - обратитесь к администратору."
-            )
+    logger.error(f"❌ Ошибка бота: {context.error}")
     
-    def setup_handlers(self):
-        """Настройка всех обработчиков"""
-        
-        # Команды
-        self.application.add_handler(CommandHandler("start", self.start_command))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("balance", self.balance_command))
-        self.application.add_handler(CommandHandler("report", self.report_command))
-        self.application.add_handler(CommandHandler("status", self.status_command))
-        
-        # Обработчик всех текстовых сообщений (ГЛАВНЫЙ - через AI агента)
-        self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
+    if update and update.message:
+        await update.message.reply_text(
+            "❌ **Системная ошибка**\n\n"
+            "• /start - перезапустить\n"
+            "• /status - проверить\n"
+            "• /help - справка"
         )
-        
-        # Глобальный обработчик ошибок
-        self.application.add_error_handler(self.error_handler)
-    
-    async def run_async(self):
-        """Полностью асинхронный запуск"""
-        
-        try:
-            logger.info("🔧 Создаем приложение Telegram...")
-            
-            # Создаем приложение
-            self.application = Application.builder().token(self.bot_token).build()
-            
-            # Настраиваем обработчики
-            self.setup_handlers()
-            
-            logger.info("⚙️ Инициализируем компоненты...")
-            
-            # Инициализируем компоненты
-            await self.initialize_components()
-            
-            logger.info("🚀 Запускаем бота в режиме polling...")
-            
-            # Запускаем бота асинхронно
-            await self.application.run_polling(
-                drop_pending_updates=True,
-                close_loop=False
-            )
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка в run_async: {e}")
-            raise
+
+async def post_init(application):
+    """Инициализация после создания приложения"""
+    await initialize_components()
 
 def main():
-    """Главная функция - правильный запуск для продакшн"""
+    """Простой синхронный запуск"""
     
-    print("🤖 Запуск финансового Telegram бота v3.1")
-    print("🧠 С AI агентом, PostgreSQL и полной интеграцией")
+    print("🤖 Запуск финансового Telegram бота v3.2")
+    print("🧠 Простая версия для Railway")
+    
+    # Проверяем переменные
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        print("❌ BOT_TOKEN не установлен")
+        return
     
     try:
-        bot = FinancialTelegramBot()
+        logger.info("🔧 Создаем приложение...")
         
-        # ПРАВИЛЬНЫЙ способ запуска в продакшн
-        if os.name == 'nt':  # Windows
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        # Создаем приложение
+        application = Application.builder().token(bot_token).post_init(post_init).build()
         
-        # Создаем новый event loop для продакшн
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("balance", balance_command))
+        application.add_handler(CommandHandler("report", report_command))
+        application.add_handler(CommandHandler("status", status_command))
         
-        try:
-            # Запускаем полностью асинхронно
-            loop.run_until_complete(bot.run_async())
-        finally:
-            # Правильно закрываем loop
-            loop.close()
+        # Главный обработчик сообщений
+        application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+        )
         
-    except ValueError as e:
-        logger.error(f"❌ Ошибка конфигурации: {e}")
-        print(f"❌ Ошибка конфигурации: {e}")
-        print("🔧 Проверьте переменные окружения в Railway")
+        # Обработчик ошибок
+        application.add_error_handler(error_handler)
         
-    except KeyboardInterrupt:
-        logger.info("🛑 Бот остановлен пользователем")
-        print("🛑 Бот остановлен пользователем")
+        logger.info("🚀 Запускаем polling...")
+        
+        # ПРОСТОЙ СИНХРОННЫЙ ЗАПУСК
+        application.run_polling(drop_pending_updates=True)
         
     except Exception as e:
         logger.error(f"❌ Критическая ошибка: {e}")
